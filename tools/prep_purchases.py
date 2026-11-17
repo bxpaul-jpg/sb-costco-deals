@@ -7,6 +7,10 @@
 """
 import openpyxl, re, json, sys, collections
 src, out = sys.argv[1], sys.argv[2]
+# 묶음 단위 보정: <출력 폴더>/pack_factors.json {"상품코드": 묶음 개수}. 매입이 낱개 단가일 때 행사(묶음) 단가로 맞춤
+import os
+pf_path = os.path.join(os.path.dirname(os.path.abspath(out)), 'pack_factors.json')
+PACK = {str(k): v for k, v in json.load(open(pf_path)).items()} if os.path.exists(pf_path) else {}
 ws = openpyxl.load_workbook(src, data_only=True).active
 rows = list(ws.iter_rows(min_row=2, values_only=True))
 def base(c):
@@ -37,7 +41,10 @@ for i, r in enumerate(rows):
             else: stats['cancel_unmatched'] += 1
         continue
     if unit <= 0: stats['skip_nonpos'] += 1; continue
-    buys.append({'code': base(code), 'raw_code': str(code), 'date': date(d), 'name': nm_clean or nm, 'unit': int(unit), 'eff': int(unit),
+    f_ = PACK.get(base(code), 1)
+    if f_ != 1:
+        unit = unit * f_; qty = (qty / f_) if isinstance(qty, (int, float)) else qty; stats['pack_adjusted'] += 1
+    buys.append({'code': base(code), 'raw_code': str(code), 'date': date(d), 'name': nm_clean or nm, 'unit': int(round(unit)), 'eff': int(round(unit)),
                  'qty': qty if isinstance(qty, (int, float)) else 1, 'target': tgt == '대상', '_f': f, '_i': i})
 by = collections.defaultdict(list)
 for b in buys: by[b['code']].append(b)
