@@ -234,7 +234,7 @@ h2 small{font-size:13px;font-weight:500;color:var(--ink-3);letter-spacing:0}
           <option value="buy">매입가 대비 절약순</option>
         </select>
       </label>
-      <div class="views" id="views" role="group" aria-label="보기"><button data-view="now" aria-pressed="true">이번 주 행사</button><button data-view="all" aria-pressed="false">창고 (지난 행사 포함)</button></div>
+      <div class="views" id="views" role="group" aria-label="보기"><button data-view="now" aria-pressed="true">이번 주 행사</button><button data-view="wh" aria-pressed="false">창고</button><button data-view="all" aria-pressed="false">전체</button></div>
       <div class="cats" id="cats" role="group" aria-label="카테고리"></div>
     </div>
   </header>
@@ -343,7 +343,7 @@ function buyTag(d) {
   return '<span class="tag up">매입가와 같음</span>';
 }
 function endTag(d) {
-  if (S.view === 'all' && !d.onNow) return `<span class="tag">${md(d.video_date)} 영상</span>`;
+  if (S.view !== 'now' && !d.onNow) return `<span class="tag">${md(d.video_date)} 영상</span>`;
   if (d.new_item) return '<span class="tag">신상</span>';
   if (!d.end) return '';
   const n = dDays(d.end);
@@ -370,20 +370,22 @@ function start(data) {
     const b = S.buy.get(String(d.item_no)) || null;
     const ratio = b ? d.sale / b.last_eff : null;
     return {...d, rate: d.regular && d.discount ? d.discount / d.regular : null, times: h ? (h.deals || 0) : 1, seen: h ? h.dates.size : 1,
-      best: h && isFinite(h.best) ? h.best : d.sale, onNow: d.video_date === latest,
+      best: h && isFinite(h.best) ? h.best : d.sale, onNow: d.video_date === latest || (!!d.end && !d.new_item && dDays(d.end) >= 0 && (!d.start || dDays(d.start) <= 0)),
       buy: b, vsBuy: b ? b.last_eff - d.sale : null, unitWarn: b ? (ratio > 1.6 || ratio < 0.6) : false};
   };
   S.latest = latest;
-  S.now = deals.filter((d) => d.video_date === latest).map(enrich);
+  const inLatest = new Set(deals.filter((d) => d.video_date === latest).map((d) => d.item_no));
   S.all = [...hist.values()].map((h) => enrich(h.last));
+  S.now = deals.filter((d) => d.video_date === latest).map(enrich).concat(S.all.filter((d) => d.onNow && !inLatest.has(d.item_no)));
+  S.wh = S.all.filter((d) => !d.onNow);
   S.vids = new Set(deals.map((d) => d.video_date)).size;
   updFav(); setView(S.view, true);
 }
 function setView(v, init) {
-  S.view = v === 'all' ? 'all' : 'now'; ls.set('sb-yc-view', S.view);
-  S.rows = S.view === 'all' ? S.all : S.now; S.cat = ''; S.flt = '';
+  S.view = ['now', 'wh', 'all'].includes(v) ? v : 'now'; ls.set('sb-yc-view', S.view);
+  S.rows = S.view === 'all' ? S.all : S.view === 'wh' ? S.wh : S.now; S.cat = ''; S.flt = '';
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === S.view));
-  $('sub').textContent = S.view === 'all' ? `창고 · 영상 ${S.vids}개에서 모은 ${S.all.length}개 상품` : `유리카트 ${md(S.latest)} 영상 · ${S.now.length}개 상품`;
+  $('sub').textContent = S.view === 'all' ? `전체 · 영상 ${S.vids}개에서 모은 ${S.all.length}개 상품` : S.view === 'wh' ? `창고 · 지금은 행사가 끝난 ${S.wh.length}개 상품` : `지금 행사 중 ${S.now.length}개 · 유리카트 ${md(S.latest)} 영상 기준`;
   buildCats(); buildPicks(); render(); if (!init) window.scrollTo({top: 0});
 }
 
@@ -397,7 +399,7 @@ function buildCats() {
   h += `<span class="sep"></span><button class="cat flt" data-flt="hot" aria-pressed="false">30%↑<small>${hot}</small></button>`;
   const ours = S.rows.filter((d) => d.buy).length;
   if (ours) h += `<button class="cat flt" data-flt="ours" aria-pressed="false">우리가 산 상품<small>${ours}</small></button>`;
-  if (S.view === 'all') { h += `<button class="cat flt" data-flt="onnow" aria-pressed="false">이번 주 행사 중<small>${S.rows.filter((d) => d.onNow).length}</small></button>`; h += `<button class="cat flt" data-flt="again" aria-pressed="false">2회 이상 행사<small>${S.rows.filter((d) => d.times > 1).length}</small></button>`; }
+  if (S.view !== 'now') { if (S.view === 'all') h += `<button class="cat flt" data-flt="onnow" aria-pressed="false">이번 주 행사 중<small>${S.rows.filter((d) => d.onNow).length}</small></button>`; h += `<button class="cat flt" data-flt="again" aria-pressed="false">2회 이상 행사<small>${S.rows.filter((d) => d.times > 1).length}</small></button>`; }
   else h += `<button class="cat flt" data-flt="soon" aria-pressed="false">마감 임박<small>${soon}</small></button>`;
   $('cats').innerHTML = h;
 }
@@ -435,13 +437,13 @@ function cardHTML(d) {
     <div class="bd"><div class="nm">${esc(d.name)}</div><div class="sp">${esc(d.spec)}</div>
       <div class="pr"><b class="num">${won(d.sale)}원</b>${d.regular ? `<s class="num">${won(d.regular)}</s>` : d.basis ? `<span class="unit">${esc(d.basis)}</span>` : ''}</div>
       ${d.buy ? `<div class="ours"><i>우리 매입</i> <b class="num">${won(d.buy.last_eff)}원</b> <i>${md(d.buy.last_date)}</i></div>` : ''}
-      <div class="ft">${buyTag(d)}${endTag(d)}${d.times > 1 ? `<span class="tag again">${d.times}회째</span>` : ''}${S.view === 'all' && d.onNow ? '<span class="tag hot">이번 주 행사</span>' : ''}</div>${d.times > 1 && d.best < d.sale ? `<div class="sp">역대 최저 ${won(d.best)}원</div>` : ''}</div></div>`;
+      <div class="ft">${buyTag(d)}${endTag(d)}${d.times > 1 ? `<span class="tag again">${d.times}회째</span>` : ''}${S.view !== 'now' && d.onNow ? '<span class="tag hot">이번 주 행사</span>' : ''}</div>${d.times > 1 && d.best < d.sale ? `<div class="sp">역대 최저 ${won(d.best)}원</div>` : ''}</div></div>`;
 }
 function render() {
   S.list = filtered(); S.shown = 0;
   $('grid').innerHTML = '';
   $('empty').hidden = S.list.length > 0;
-  $('list-h').firstChild.textContent = S.favOnly ? '찜한 상품 ' : S.cat ? S.cat + ' ' : S.flt === 'hot' ? '30% 이상 할인 ' : S.flt === 'soon' ? '마감 임박 ' : S.flt === 'ours' ? '우리가 산 상품 ' : S.flt === 'onnow' ? '이번 주 행사 중 ' : S.flt === 'again' ? '2회 이상 행사 ' : S.view === 'all' ? '창고 전체 ' : '전체 상품 ';
+  $('list-h').firstChild.textContent = S.favOnly ? '찜한 상품 ' : S.cat ? S.cat + ' ' : S.flt === 'hot' ? '30% 이상 할인 ' : S.flt === 'soon' ? '마감 임박 ' : S.flt === 'ours' ? '우리가 산 상품 ' : S.flt === 'onnow' ? '이번 주 행사 중 ' : S.flt === 'again' ? '2회 이상 행사 ' : S.view === 'all' ? '전체 상품 ' : S.view === 'wh' ? '창고 상품 ' : '이번 주 행사 ';
   $('list-n').textContent = S.list.length + '개';
   $('pick-sec').hidden = !!(S.cat || S.flt || S.q || S.favOnly);
   more();
