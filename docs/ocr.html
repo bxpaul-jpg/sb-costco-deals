@@ -1,0 +1,12 @@
+<!doctype html><meta charset="utf-8"><title>ocr</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<body>ocr helper
+<script>
+let worker=null, q=Promise.resolve();
+async function ready(){ if(!worker){ worker=await Tesseract.createWorker(['kor','eng']); } return worker; }
+window.addEventListener('message', ev=>{
+  const m=ev.data; if(!m||m.type!=='ocr') return;
+  q=q.then(async()=>{ try{ const w=await ready(); const r=await w.recognize(m.img); ev.source.postMessage({type:'ocr-res',id:m.id,text:r.data.text,conf:r.data.confidence},'*'); }catch(e){ ev.source.postMessage({type:'ocr-res',id:m.id,err:String(e)},'*'); } });
+});
+ready().then(()=>{ if(window.opener) window.opener.postMessage({type:'ocr-ready'},'*'); if(window.parent!==window) window.parent.postMessage({type:'ocr-ready'},'*'); document.body.append(' ready'); });
+</script>
