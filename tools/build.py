@@ -6,6 +6,7 @@
 비공개 폴더 구성 (절대 저장소에 올리지 말 것):
   deals.json   {rows:[...]}  행사 상품 (주차별 누적)
   images.json  {rows:[{item_no,img}]}  상품 사진 (선택)
+  purchases.json  tools/prep_purchases.py 로 만든 우리 매입 이력 (선택)
   access.json  [{"name":"홍길동","code":"원하는코드"}, ...]  접속 허용 명단
 코드를 빼거나 바꾸면 다음 빌드부터 그 코드로는 열리지 않는다 (매번 새 데이터 키 사용).
 """
@@ -28,11 +29,13 @@ def main():
     load = lambda n: json.load(open(os.path.join(a.private, n), encoding='utf-8'))
     deals = load('deals.json')
     images = load('images.json') if os.path.exists(os.path.join(a.private, 'images.json')) else {'rows': []}
+    purchases = load('purchases.json') if os.path.exists(os.path.join(a.private, 'purchases.json')) else {'rows': []}
     access = load('access.json')
     codes = [p['code'] for p in access if p.get('code', '').strip()]
     if not codes: sys.exit('access.json 에 코드가 없습니다')
     if len(set(c.strip() for c in codes)) != len(codes): sys.exit('같은 코드가 두 번 있습니다')
     payload = json.dumps({'deals': deals.get('rows', deals), 'images': images.get('rows', images),
+                          'purchases': purchases.get('rows', purchases),
                           'built_at': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')},
                          ensure_ascii=False, separators=(',', ':')).encode()
     dk = AESGCM.generate_key(bit_length=256)
