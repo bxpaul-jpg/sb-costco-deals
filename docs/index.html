@@ -140,6 +140,13 @@ h2 small{font-size:13px;font-weight:500;color:var(--ink-3);letter-spacing:0}
 .buy td{padding:5px 0;border-bottom:1px solid var(--line)}
 .buy td:not(:first-child),.buy th:not(:first-child){text-align:right}
 .buy .cmp{font-size:13px;font-weight:600}
+.trend{margin:0 12px 12px;border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.trend h4{margin:0 0 4px;font-size:14px;font-weight:800;display:flex;justify-content:space-between;align-items:baseline}
+.trend h4 small{font-size:11.5px;font-weight:500;color:var(--ink-3)}
+.trend svg{width:100%;height:auto;display:block;overflow:visible}
+.trend .lg{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-2);margin-top:6px}
+.trend .lg i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.trend .note{font-size:11.5px;color:var(--ink-3);margin-top:6px}
 
 .empty{padding:48px 16px;text-align:center;color:var(--ink-3)}
 .sentinel{height:1px}
@@ -305,7 +312,7 @@ const ICON = {
   copy: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'
 };
 
-const S = { rows: [], img: new Map(), approx: new Set(), buy: new Map(), cat: '', flt: '', q: '', sort: 'rate', shown: 0, favs: new Set(JSON.parse(ls.get('sb-yc-favs') || '[]')), favOnly: false, list: [] };
+const S = { rows: [], img: new Map(), approx: new Set(), web: new Set(), series: new Map(), buy: new Map(), cat: '', flt: '', q: '', sort: 'rate', shown: 0, favs: new Set(JSON.parse(ls.get('sb-yc-favs') || '[]')), favOnly: false, list: [] };
 const PAGE = 40;
 
 function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
@@ -340,7 +347,7 @@ function endTag(d) {
 
 function start(data) {
   const deals = data.deals || [];
-  (data.images || []).forEach((r) => { if (r.img) S.img.set(String(r.item_no), r.img); if (r.approx) S.approx.add(String(r.item_no)); });
+  (data.images || []).forEach((r) => { if (r.img) S.img.set(String(r.item_no), r.img); if (r.approx) S.approx.add(String(r.item_no)); if (r.src === 'web') S.web.add(String(r.item_no)); });
   (data.purchases || []).forEach((r) => S.buy.set(String(r.item_no), r));
   const latest = deals.reduce((m, d) => (d.video_date > m ? d.video_date : m), '');
   const hist = new Map();
@@ -348,6 +355,8 @@ function start(data) {
     if (!d.item_no) return;
     const h = hist.get(d.item_no) || {dates: new Set(), best: Infinity};
     h.dates.add(d.video_date); h.best = Math.min(h.best, d.sale); hist.set(d.item_no, h);
+    const k = String(d.item_no); if (!S.series.has(k)) S.series.set(k, []);
+    const arr = S.series.get(k); if (!arr.some((x) => x.d === d.video_date)) arr.push({d: d.video_date, s: d.sale, r: d.regular});
   });
   S.rows = deals.filter((d) => d.video_date === latest).map((d) => {
     const h = hist.get(d.item_no);
@@ -470,7 +479,7 @@ function openSheet(key) {
   $('sheet').innerHTML = `<div class="grab"></div>
     <button class="icon-btn x" id="s-x" aria-label="닫기">${ICON.x}</button>
     <div class="lay">
-      <div style="position:relative">${photo(d).replace('</div>', S.approx.has(String(d.item_no)) ? '<span class="cap">온라인몰 같은 상품(구성·용량 다를 수 있음) 사진</span></div>' : '</div>')}</div>
+      <div style="position:relative">${photo(d).replace('</div>', S.approx.has(String(d.item_no)) ? (S.web.has(String(d.item_no)) ? '<span class="cap">웹 검색 참고 사진(포장·구성 다를 수 있음)</span></div>' : '<span class="cap">온라인몰 같은 상품(구성·용량 다를 수 있음) 사진</span></div>') : '</div>')}${trendBlock(d)}</div>
       <div class="info">
         <span class="cat-l">${esc(d.category)}</span>
         <h3 id="s-name">${esc(d.name)}</h3>
@@ -500,6 +509,36 @@ function openSheet(key) {
   $('sheet').scrollTop = 0;
   $('sheet').classList.add('on'); $('sheet-bg').classList.add('on');
   document.body.style.overflow = 'hidden';
+}
+function trendBlock(d) {
+  const ser = (S.series.get(String(d.item_no)) || []).slice().sort((a, b) => (a.d < b.d ? -1 : 1));
+  const buys = d.buy ? d.buy.hist.filter((x) => x.d) : [];
+  const pts = [...ser.map((x) => x.d), ...buys.map((x) => x.d)];
+  if (!pts.length) return '';
+  const t = (s) => new Date(s + 'T00:00:00').getTime();
+  let t0 = Math.min(...pts.map(t)), t1 = Math.max(...pts.map(t));
+  if (t1 - t0 < 14 * 864e5) { const mid = (t0 + t1) / 2; t0 = mid - 7 * 864e5; t1 = mid + 7 * 864e5; }
+  const vals = [...ser.map((x) => x.s), ...ser.map((x) => x.r).filter(Boolean), ...buys.map((x) => x.e)];
+  let v0 = Math.min(...vals), v1 = Math.max(...vals);
+  const pad = Math.max((v1 - v0) * 0.15, v1 * 0.05); v0 = Math.max(0, v0 - pad); v1 = v1 + pad;
+  const W = 320, H = 150, L = 46, R = 10, T = 10, B = 22;
+  const X = (s) => L + (t(s) - t0) / (t1 - t0) * (W - L - R);
+  const Y = (v) => T + (1 - (v - v0) / (v1 - v0)) * (H - T - B);
+  const kfmt = (v) => v >= 10000 ? (v / 10000).toFixed(v >= 100000 ? 0 : 1) + '만' : won(Math.round(v));
+  let g = '';
+  for (let i = 0; i <= 3; i++) { const v = v0 + (v1 - v0) * i / 3, y = Y(v);
+    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y + 3.5}" text-anchor="end" font-size="10" fill="var(--ink-3)">${kfmt(v)}</text>`; }
+  for (let i = 0; i <= 4; i++) { const dt = new Date(t0 + (t1 - t0) * i / 4); const s = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    g += `<text x="${X(s)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === 4 ? 'end' : 'middle'}" font-size="10" fill="var(--ink-3)">${md(s)}</text>`; }
+  const path = (arr, key) => arr.filter((x) => x[key]).map((x, i) => (i ? 'L' : 'M') + X(x.d).toFixed(1) + ' ' + Y(x[key]).toFixed(1)).join(' ');
+  if (ser.some((x) => x.r)) g += `<path d="${path(ser, 'r')}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/>` + ser.filter((x) => x.r).map((x) => `<circle cx="${X(x.d)}" cy="${Y(x.r)}" r="3" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"><title>${md(x.d)} 정상가 ${won(x.r)}원</title></circle>`).join('');
+  g += `<path d="${path(ser, 's')}" fill="none" stroke="var(--sb)" stroke-width="2.5" stroke-linejoin="round"/>` + ser.map((x) => `<circle cx="${X(x.d)}" cy="${Y(x.s)}" r="4.5" fill="var(--sb)" stroke="var(--surface)" stroke-width="2"><title>${md(x.d)} 행사가 ${won(x.s)}원</title></circle>`).join('');
+  g += buys.map((x) => `<rect x="${X(x.d) - 4}" y="${Y(x.e) - 4}" width="8" height="8" rx="2" transform="rotate(45 ${X(x.d)} ${Y(x.e)})" fill="#2457c5" stroke="var(--surface)" stroke-width="1.5"><title>${md(x.d)} 우리 매입 ${won(x.e)}원 × ${won(x.q)}</title></rect>`).join('');
+  const note = ser.length < 2 ? '유리카트 영상이 업데이트될 때마다 행사가 점이 하나씩 늘어나요.' : `유리카트 행사 ${ser.length}회 기록`;
+  return `<div class="trend"><h4>단가 변화 <small>${md(pts.slice().sort()[0])} ~ ${md(pts.slice().sort().pop())}</small></h4>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="단가 변화 그래프">${g}</svg>
+    <div class="lg"><span><i style="background:var(--sb)"></i>유리카트 행사가</span>${ser.some((x) => x.r) ? '<span><i style="background:transparent;border:1.5px solid var(--ink-3)"></i>정상가</span>' : ''}${buys.length ? '<span><i style="background:#2457c5;border-radius:2px;transform:rotate(45deg)"></i>우리 매입가</span>' : ''}</div>
+    <div class="note">${note}</div></div>`;
 }
 function buyBlock(d) {
   const b = d.buy; if (!b) return '';
