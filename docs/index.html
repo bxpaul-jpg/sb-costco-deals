@@ -122,6 +122,7 @@ h2 small{font-size:13px;font-weight:500;color:var(--ink-3);letter-spacing:0}
 .tag.again{background:#e8f0ff;color:#2457c5}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .tag.again{background:#1b2740;color:#8fb2ff}}
 .unit{font-size:11px;color:var(--ink-3)}
+.ph .cap{position:absolute;left:0;right:0;bottom:0;padding:6px 10px;font-size:11.5px;color:#55555c;background:rgba(255,255,255,.85);text-align:center}
 .ours{margin-top:6px;font-size:12px;color:var(--ink-2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .ours i{font-style:normal;color:var(--ink-3)}
 .tag.down{background:#e3f5ea;color:#167a3e}
@@ -304,12 +305,12 @@ const ICON = {
   copy: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'
 };
 
-const S = { rows: [], img: new Map(), buy: new Map(), cat: '', flt: '', q: '', sort: 'rate', shown: 0, favs: new Set(JSON.parse(ls.get('sb-yc-favs') || '[]')), favOnly: false, list: [] };
+const S = { rows: [], img: new Map(), approx: new Set(), buy: new Map(), cat: '', flt: '', q: '', sort: 'rate', shown: 0, favs: new Set(JSON.parse(ls.get('sb-yc-favs') || '[]')), favOnly: false, list: [] };
 const PAGE = 40;
 
 function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 function photo(d, extraCls) {
-  const src = S.img.get(d.item_no);
+  const src = S.img.get(String(d.item_no));
   if (src) return `<div class="ph ${extraCls || ''}"><img src="${src}" alt="" loading="lazy"></div>`;
   const h = hue(d.category || '');
   return `<div class="ph none ${extraCls || ''}" style="--ph-bg:hsl(${h} 30% 93%);--ph-ink:hsl(${h} 25% 40%)"><div class="mono"><img src="assets/sb_logo.png" alt=""><span>${esc(d.category)}</span></div></div>`;
@@ -339,7 +340,7 @@ function endTag(d) {
 
 function start(data) {
   const deals = data.deals || [];
-  (data.images || []).forEach((r) => r.img && S.img.set(r.item_no, r.img));
+  (data.images || []).forEach((r) => { if (r.img) S.img.set(String(r.item_no), r.img); if (r.approx) S.approx.add(String(r.item_no)); });
   (data.purchases || []).forEach((r) => S.buy.set(String(r.item_no), r));
   const latest = deals.reduce((m, d) => (d.video_date > m ? d.video_date : m), '');
   const hist = new Map();
@@ -465,11 +466,11 @@ function openSheet(key) {
   const total = Math.max(1, dDays(d.end) - dDays(d.start) + 1);
   const left = dDays(d.end);
   const passed = Math.min(1, Math.max(0, (total - left - 1) / total));
-  const online = S.img.has(d.item_no);
+  const online = S.img.has(String(d.item_no)) && !S.approx.has(String(d.item_no));
   $('sheet').innerHTML = `<div class="grab"></div>
     <button class="icon-btn x" id="s-x" aria-label="닫기">${ICON.x}</button>
     <div class="lay">
-      <div style="position:relative">${photo(d)}</div>
+      <div style="position:relative">${photo(d).replace('</div>', S.approx.has(String(d.item_no)) ? '<span class="cap">온라인몰 같은 상품(구성·용량 다를 수 있음) 사진</span></div>' : '</div>')}</div>
       <div class="info">
         <span class="cat-l">${esc(d.category)}</span>
         <h3 id="s-name">${esc(d.name)}</h3>
