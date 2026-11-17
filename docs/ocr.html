@@ -6,7 +6,7 @@ let worker=null, q=Promise.resolve();
 async function ready(){ if(!worker){ worker=await Tesseract.createWorker(['kor','eng']); } return worker; }
 window.addEventListener('message', ev=>{
   const m=ev.data; if(!m||m.type!=='ocr') return;
-  q=q.then(async()=>{ try{ const w=await ready(); const r=await w.recognize(m.img); ev.source.postMessage({type:'ocr-res',id:m.id,text:r.data.text,conf:r.data.confidence},'*'); }catch(e){ ev.source.postMessage({type:'ocr-res',id:m.id,err:String(e)},'*'); } });
+  q=q.then(async()=>{ try{ const w=await ready(); await w.setParameters({tessedit_pageseg_mode: String(m.psm||3), tessedit_char_whitelist: m.wl||''}); const r=await w.recognize(m.img); ev.source.postMessage({type:'ocr-res',id:m.id,text:r.data.text,conf:r.data.confidence},'*'); }catch(e){ ev.source.postMessage({type:'ocr-res',id:m.id,err:String(e)},'*'); } });
 });
 ready().then(()=>{ if(window.opener) window.opener.postMessage({type:'ocr-ready'},'*'); if(window.parent!==window) window.parent.postMessage({type:'ocr-ready'},'*'); document.body.append(' ready'); });
 </script>
