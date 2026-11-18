@@ -57,5 +57,12 @@ for code, bs in by.items():
                  'avg_eff': round(sum(b['eff'] * b['qty'] for b in bs) / tq) if tq else None,
                  'min_eff': min(b['eff'] for b in bs), 'target': any(b['target'] for b in bs),
                  'hist': [{'d': b['date'], 'u': b['unit'], 'e': b['eff'], 'q': b['qty']} for b in bs][-12:]})
+# 같은 상품인데 영수증 상품번호와 행사 상품번호가 다른 경우: <출력 폴더>/purchase_aliases.json {"영수증코드": "행사코드"}
+al_path = os.path.join(os.path.dirname(os.path.abspath(out)), 'purchase_aliases.json')
+AL = {str(k): str(v) for k, v in json.load(open(al_path)).items()} if os.path.exists(al_path) else {}
+have = {r['item_no'] for r in outp}
+for r in list(outp):
+    t = AL.get(r['item_no'])
+    if t and t not in have: outp.append({**r, 'item_no': t, 'alias_of': r['item_no']}); have.add(t); stats['alias'] += 1
 json.dump({'rows': outp, 'meta': {'source': '코스트코 판가정리.xlsx', 'purchases': len(buys), 'items': len(outp)}}, open(out, 'w'), ensure_ascii=False)
 print(dict(stats), 'purchases', len(buys), 'items', len(outp))
