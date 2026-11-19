@@ -340,14 +340,14 @@ function heartBtn(d) {
   return `<button class="heart" data-fav="${esc(d.key)}" aria-pressed="${on}" aria-label="찜">${ICON.heart}</button>`;
 }
 function buyTag(d) {
-  if (!d.buy) return '';
+  if (!d.buy || d.offline) return '';
   if (d.unitWarn) return '<span class="tag warn">단위 확인</span>';
   if (d.vsBuy > 0) return `<span class="tag down">매입보다 ${won(d.vsBuy)}원↓</span>`;
   if (d.vsBuy < 0) return `<span class="tag up">매입보다 ${won(-d.vsBuy)}원↑</span>`;
   return '<span class="tag up">매입가와 같음</span>';
 }
 function endTag(d) {
-  if (d.catalog) return '<span class="tag">코스트코몰 판매가</span>';
+  if (d.catalog) return d.offline ? '<span class="tag">매장 전용 · 최근 매입가</span>' : '<span class="tag">코스트코몰 판매가</span>';
   if (S.view !== 'now' && !d.onNow) return `<span class="tag">${md(d.video_date)} 영상</span>`;
   if (d.new_item) return '<span class="tag">신상</span>';
   if (!d.end) return '';
@@ -383,9 +383,10 @@ function start(data) {
   S.all = [...hist.values()].map((h) => enrich(h.last));
   S.now = deals.filter((d) => d.video_date === latest).map(enrich).concat(S.all.filter((d) => d.onNow && !inLatest.has(d.item_no)));
   const inAll = new Set(S.all.map((d) => String(d.item_no)));
-  (data.catalog || []).forEach((c, i) => { const k = String(c.item_no); if (inAll.has(k) || !c.price) return; const b = S.buy.get(k) || null;
-    S.all.push({key: 'c-' + k, item_no: k, name: c.name, spec: '', sale: c.price, regular: null, discount: 0, category: c.category || '커클랜드', video_date: '', ts: 1e9 + i, catalog: true,
-      rate: null, times: 0, seen: 0, best: c.price, onNow: false, buy: b, vsBuy: b ? b.last_eff - c.price : null, unitWarn: b ? (c.price / b.last_eff > 1.6 || c.price / b.last_eff < 0.6) : false}); });
+  S.mall = new Map(Object.entries(data.mall || {}));
+  (data.catalog || []).forEach((c, i) => { const k = String(c.item_no); const b = S.buy.get(k) || null; const price = c.price || (b && b.last_eff); if (inAll.has(k) || !price) return;
+    S.all.push({key: 'c-' + k, item_no: k, name: c.name, spec: '', sale: price, regular: null, discount: 0, category: c.category || '커클랜드', video_date: '', ts: 1e9 + i, catalog: true, offline: !c.price,
+      rate: null, times: 0, seen: 0, best: price, onNow: false, buy: b, vsBuy: b && c.price ? b.last_eff - c.price : null, unitWarn: b && c.price ? (c.price / b.last_eff > 1.6 || c.price / b.last_eff < 0.6) : false}); });
   S.wh = S.all.filter((d) => !d.onNow && !d.catalog);
   S.vids = new Set(deals.map((d) => d.video_date)).size;
   updFav(); setView(S.view, true);
@@ -394,7 +395,7 @@ function setView(v, init) {
   S.view = ['now', 'wh', 'all'].includes(v) ? v : 'now'; ls.set('sb-yc-view', S.view);
   S.rows = S.view === 'all' ? S.all : S.view === 'wh' ? S.wh : S.now; S.cat = ''; S.flt = '';
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === S.view));
-  $('sub').textContent = S.view === 'all' ? `전체 · 영상 ${S.vids}개에서 모은 ${S.all.filter((d) => !d.catalog).length}개 상품` + (S.all.some((d) => d.catalog) ? ` + 커클랜드 ${S.all.filter((d) => d.catalog).length}개` : '') : S.view === 'wh' ? `창고 · 지금은 행사가 끝난 ${S.wh.length}개 상품` : `지금 행사 중 ${S.now.length}개 · 유리카트 ${md(S.latest)} 영상 기준`;
+  $('sub').textContent = S.view === 'all' ? `전체 · 영상 ${S.vids}개에서 모은 ${S.all.filter((d) => !d.catalog).length}개 상품` + (S.all.some((d) => d.catalog) ? ` + 커클랜드·매입 상품 ${S.all.filter((d) => d.catalog).length}개` : '') : S.view === 'wh' ? `창고 · 지금은 행사가 끝난 ${S.wh.length}개 상품` : `지금 행사 중 ${S.now.length}개 · 유리카트 ${md(S.latest)} 영상 기준`;
   buildCats(); buildPicks(); render(); if (!init) window.scrollTo({top: 0});
 }
 
@@ -523,11 +524,11 @@ function openSheet(key) {
         <dl class="prices num">
           ${d.regular ? `<div class="row"><dt>정상가</dt><dd>${won(d.regular)}원</dd></div>` : ''}
           ${d.discount ? `<div class="row"><dt>할인</dt><dd style="color:var(--sb)">-${won(d.discount)}원${d.rate != null ? ` (${(d.rate * 100).toFixed(1)}%)` : ''}</dd></div>` : ''}
-          <div class="row big"><dt>${d.new_item || d.catalog ? '판매가' : '행사가'}</dt><dd>${won(d.sale)}원</dd></div>
+          <div class="row big"><dt>${d.offline ? '최근 매입가' : d.new_item || d.catalog ? '판매가' : '행사가'}</dt><dd>${won(d.sale)}원</dd></div>
           ${d.basis ? `<div class="row"><dt>기준</dt><dd>${esc(d.basis)}</dd></div>` : ''}
         </dl>
         ${d.end ? `<div class="period">${d.onNow ? '' : md(d.video_date) + ' 영상 · '}행사 기간 ${d.start ? md(d.start) : ''} ~ ${md(d.end)} · ${left < 0 ? '종료' : left === 0 ? '오늘 마감' : left + '일 남음'}
-          <div class="track"><i style="width:${(passed * 100).toFixed(0)}%"></i></div></div>` : (d.catalog ? '<div class="period">코스트코 온라인몰 판매가 · 유리카트 행사 기록 없음</div>' : `<div class="period">${md(d.video_date)} 영상${d.new_item ? ' · 신상(할인 없음)' : ''}</div>`)}
+          <div class="track"><i style="width:${(passed * 100).toFixed(0)}%"></i></div></div>` : (d.catalog ? `<div class="period">${d.offline ? '매장 전용 상품(온라인몰 가격 없음) · 표시 가격은 우리 최근 매입가' : '코스트코 온라인몰 판매가 · 유리카트 행사 기록 없음'}</div>` : `<div class="period">${md(d.video_date)} 영상${d.new_item ? ' · 신상(할인 없음)' : ''}</div>`)}
         ${buyBlock(d)}
         ${d.times > 1 ? `<div class="hist">유리카트 행사 ${d.times}회 기록. 지금까지 최저 행사가는 <b>${won(d.best)}원</b>${!d.new_item && d.sale <= d.best ? ' — 이 가격이 가장 싸요!' : ''}</div>` : ''}
         <div class="acts">
@@ -548,12 +549,13 @@ function openSheet(key) {
 function trendBlock(d) {
   const ser = (S.series.get(String(d.item_no)) || []).slice().sort((a, b) => (a.d < b.d ? -1 : 1));
   const buys = d.buy ? d.buy.hist.filter((x) => x.d) : [];
-  const pts = [...ser.map((x) => x.d), ...buys.map((x) => x.d)];
+  const mall = (S.mall.get(String(d.item_no)) || []).filter((x) => x.d && x.p);
+  const pts = [...ser.map((x) => x.d), ...buys.map((x) => x.d), ...mall.map((x) => x.d)];
   if (!pts.length) return '';
   const t = (s) => new Date(s + 'T00:00:00').getTime();
   let t0 = Math.min(...pts.map(t)), t1 = Math.max(...pts.map(t));
   if (t1 - t0 < 14 * 864e5) { const mid = (t0 + t1) / 2; t0 = mid - 7 * 864e5; t1 = mid + 7 * 864e5; }
-  const vals = [...ser.map((x) => x.s).filter(Boolean), ...ser.map((x) => x.r).filter(Boolean), ...buys.map((x) => x.e)];
+  const vals = [...ser.map((x) => x.s).filter(Boolean), ...ser.map((x) => x.r).filter(Boolean), ...buys.map((x) => x.e), ...mall.map((x) => x.p)];
   let v0 = Math.min(...vals), v1 = Math.max(...vals);
   const pad = Math.max((v1 - v0) * 0.15, v1 * 0.05); v0 = Math.max(0, v0 - pad); v1 = v1 + pad;
   const W = 320, H = 150, L = 46, R = 10, T = 10, B = 22;
@@ -569,11 +571,12 @@ function trendBlock(d) {
   if (ser.some((x) => x.r)) g += `<path d="${path(ser, 'r')}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/>` + ser.filter((x) => x.r).map((x) => `<circle cx="${X(x.d)}" cy="${Y(x.r)}" r="3" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"><title>${md(x.d)} 정상가 ${won(x.r)}원</title></circle>`).join('');
   g += `<path d="${path(ser, 's')}" fill="none" stroke="var(--sb)" stroke-width="2.5" stroke-linejoin="round"/>` + ser.filter((x) => x.s).map((x) => `<circle cx="${X(x.d)}" cy="${Y(x.s)}" r="4.5" fill="var(--sb)" stroke="var(--surface)" stroke-width="2"><title>${md(x.d)} 행사가 ${won(x.s)}원</title></circle>`).join('');
   g += buys.map((x) => `<rect x="${X(x.d) - 4}" y="${Y(x.e) - 4}" width="8" height="8" rx="2" transform="rotate(45 ${X(x.d)} ${Y(x.e)})" fill="#2457c5" stroke="var(--surface)" stroke-width="1.5"><title>${md(x.d)} 우리 매입 ${won(x.e)}원 × ${won(x.q)}</title></rect>`).join('');
+  if (mall.length) g += `<path d="${mall.map((x, i) => (i ? 'L' : 'M') + X(x.d).toFixed(1) + ' ' + Y(x.p).toFixed(1)).join(' ')}" fill="none" stroke="#167a3e" stroke-width="2"/>` + mall.map((x) => `<circle cx="${X(x.d)}" cy="${Y(x.p)}" r="3.5" fill="#167a3e" stroke="var(--surface)" stroke-width="1.5"><title>${md(x.d)} 코스트코몰 ${won(x.p)}원</title></circle>`).join('');
   const nS = ser.filter((x) => x.s).length;
-  const note = ser.length < 2 ? '유리카트 영상이 업데이트될 때마다 행사가 점이 하나씩 늘어나요.' : `유리카트 영상 ${ser.length}회 등장 · 행사 ${nS}회`;
+  const note = !ser.length ? '코스트코몰 가격을 확인할 때마다(월·목) 초록 점이 하나씩 늘어나요.' : ser.length < 2 ? '유리카트 영상이 업데이트될 때마다 행사가 점이 하나씩 늘어나요.' : `유리카트 영상 ${ser.length}회 등장 · 행사 ${nS}회`;
   return `<div class="trend"><h4>단가 변화 <small>${md(pts.slice().sort()[0])} ~ ${md(pts.slice().sort().pop())}</small></h4>
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="단가 변화 그래프">${g}</svg>
-    <div class="lg"><span><i style="background:var(--sb)"></i>유리카트 행사가</span>${ser.some((x) => x.r) ? '<span><i style="background:transparent;border:1.5px solid var(--ink-3)"></i>정상가</span>' : ''}${buys.length ? '<span><i style="background:#2457c5;border-radius:2px;transform:rotate(45deg)"></i>우리 매입가</span>' : ''}</div>
+    <div class="lg"><span><i style="background:var(--sb)"></i>유리카트 행사가</span>${ser.some((x) => x.r) ? '<span><i style="background:transparent;border:1.5px solid var(--ink-3)"></i>정상가</span>' : ''}${buys.length ? '<span><i style="background:#2457c5;border-radius:2px;transform:rotate(45deg)"></i>우리 매입가</span>' : ''}${mall.length ? '<span><i style="background:#167a3e"></i>코스트코몰 가격</span>' : ''}</div>
     <div class="note">${note}</div></div>`;
 }
 function buyBlock(d) {
