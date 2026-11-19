@@ -61,6 +61,9 @@ body.locked .app{display:none}
 .search{display:flex;align-items:center;gap:8px;background:var(--surface);border-radius:14px;padding:0 12px;height:44px;box-shadow:var(--shadow)}
 .search svg{width:18px;height:18px;color:var(--ink-3);flex:none}
 .search input{flex:1;border:0;background:transparent;outline:none;font-size:15px;min-width:0}
+.cam-btn{flex:none;border:0;background:transparent;color:var(--ink-2);padding:6px;margin:0 -2px;cursor:pointer;display:flex;border-radius:10px}
+.cam-btn svg{width:21px;height:21px;color:inherit}
+.cam-btn:active{background:var(--line)}
 .search select{border:0;background:transparent;font-size:13px;color:var(--ink-2);outline:none;cursor:pointer;max-width:120px}
 .views{display:flex;background:var(--surface);border-radius:12px;padding:3px;box-shadow:inset 0 0 0 1px var(--line)}
 .views button{flex:1;border:0;background:transparent;border-radius:9px;padding:8px 6px;font-size:13.5px;font-weight:700;color:var(--ink-2);cursor:pointer}
@@ -226,6 +229,7 @@ h2 small{font-size:13px;font-weight:500;color:var(--ink-3);letter-spacing:0}
       <label class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="q" type="search" placeholder="상품명 또는 상품번호" aria-label="검색">
+        <button type="button" class="cam-btn" id="cam-btn" aria-label="가격표 사진으로 찾기" title="가격표 사진으로 찾기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
         <select id="sort" aria-label="정렬">
           <option value="rate">할인율순</option>
           <option value="low">낮은 가격순</option>
@@ -592,7 +596,58 @@ $('sheet-bg').addEventListener('click', closeSheet);
   sh.addEventListener('touchend', (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 90) closeSheet(); y0 = null; }, {passive: true});
 })();
 
-let tT; function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(tT); tT = setTimeout(() => el.classList.remove('on'), 1600); }
+let tT; function toast(t, ms) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(tT); if (ms !== 0) tT = setTimeout(() => el.classList.remove('on'), ms || 1600); }
+
+// ---------- 가격표 사진으로 찾기 ----------
+const camIn = Object.assign(document.createElement('input'), {type: 'file', accept: 'image/*', hidden: true});
+camIn.setAttribute('capture', 'environment'); document.body.appendChild(camIn);
+$('cam-btn').addEventListener('click', (e) => { e.preventDefault(); camIn.value = ''; camIn.click(); });
+let ocrW = null;
+async function ocrWorker() {
+  if (ocrW) return ocrW;
+  if (!window.Tesseract) await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+  ocrW = await Tesseract.createWorker('eng');
+  await ocrW.setParameters({tessedit_char_whitelist: '0123456789 '});
+  return ocrW;
+}
+function camCanvas(img, crop) {
+  const [sx, sy, sw, sh] = crop || [0, 0, img.naturalWidth, img.naturalHeight];
+  const k = Math.min(1, 1600 / Math.max(sw, sh)), c = document.createElement('canvas');
+  c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+  const x = c.getContext('2d'); x.filter = 'grayscale(1) contrast(1.6)'; x.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height); return c;
+}
+function findNo(texts) {
+  const all = new Map(); S.all.forEach((d) => all.set(String(d.item_no), d));
+  const seen = [];
+  for (const t of texts) for (const m of String(t).replace(/(\d)\s(?=\d)/g, '$1').match(/\d{5,7}/g) || []) { seen.push(m); if (all.has(m)) return {no: m, seen}; }
+  return {no: null, seen};
+}
+camIn.addEventListener('change', async () => {
+  const f = camIn.files && camIn.files[0]; if (!f) return;
+  toast('가격표를 읽는 중이에요…', 0);
+  try {
+    const img = new Image(); img.src = URL.createObjectURL(f); await img.decode();
+    const texts = [];
+    if ('BarcodeDetector' in window) { try { const bs = await new BarcodeDetector().detect(img); bs.forEach((b) => texts.push(b.rawValue)); } catch (e) {} }
+    let r = findNo(texts);
+    if (!r.no) {
+      const w = await ocrWorker(), W = img.naturalWidth, H = img.naturalHeight;
+      for (const crop of [[0, 0, W, Math.round(H * 0.45)], null]) {
+        const {data} = await w.recognize(camCanvas(img, crop)); texts.push(data.text); r = findNo(texts); if (r.no) break;
+      }
+    }
+    URL.revokeObjectURL(img.src);
+    if (!r.no) { toast(r.seen.length ? `번호 ${r.seen.slice(0, 3).join(', ')}는 SB 카트에 없어요` : '상품번호를 못 읽었어요. 가격표 왼쪽 위 번호가 잘 보이게 찍어 주세요', 3200); return; }
+    const inRows = S.rows.some((d) => String(d.item_no) === r.no);
+    if (!inRows) setView('all');
+    S.favOnly = false; $('fav-btn').setAttribute('aria-pressed', false); S.cat = ''; S.flt = ''; buildCats();
+    $('q').value = r.no; S.q = r.no; render();
+    toast(`상품번호 ${r.no} 찾았어요`, 1600);
+    const hit = S.rows.filter((d) => String(d.item_no) === r.no);
+    if (hit.length === 1) openSheet(hit[0].key);
+  } catch (e) { toast('사진을 읽지 못했어요. 다시 찍어 주세요', 2500); }
+});
+
 
 // ---------- 시작 ----------
 (() => { const c = ls.get('sb-yc-code'); if (c) { $('gate-code').value = c; tryCode(c, true); } else $('gate-code').focus(); })();
