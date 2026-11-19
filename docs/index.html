@@ -343,6 +343,7 @@ function buyTag(d) {
   return '<span class="tag up">매입가와 같음</span>';
 }
 function endTag(d) {
+  if (d.catalog) return '<span class="tag">코스트코몰 판매가</span>';
   if (S.view !== 'now' && !d.onNow) return `<span class="tag">${md(d.video_date)} 영상</span>`;
   if (d.new_item) return '<span class="tag">신상</span>';
   if (!d.end) return '';
@@ -377,7 +378,11 @@ function start(data) {
   const inLatest = new Set(deals.filter((d) => d.video_date === latest).map((d) => d.item_no));
   S.all = [...hist.values()].map((h) => enrich(h.last));
   S.now = deals.filter((d) => d.video_date === latest).map(enrich).concat(S.all.filter((d) => d.onNow && !inLatest.has(d.item_no)));
-  S.wh = S.all.filter((d) => !d.onNow);
+  const inAll = new Set(S.all.map((d) => String(d.item_no)));
+  (data.catalog || []).forEach((c, i) => { const k = String(c.item_no); if (inAll.has(k) || !c.price) return; const b = S.buy.get(k) || null;
+    S.all.push({key: 'c-' + k, item_no: k, name: c.name, spec: '', sale: c.price, regular: null, discount: 0, category: c.category || '커클랜드', video_date: '', ts: 1e9 + i, catalog: true,
+      rate: null, times: 0, seen: 0, best: c.price, onNow: false, buy: b, vsBuy: b ? b.last_eff - c.price : null, unitWarn: b ? (c.price / b.last_eff > 1.6 || c.price / b.last_eff < 0.6) : false}); });
+  S.wh = S.all.filter((d) => !d.onNow && !d.catalog);
   S.vids = new Set(deals.map((d) => d.video_date)).size;
   updFav(); setView(S.view, true);
 }
@@ -385,20 +390,23 @@ function setView(v, init) {
   S.view = ['now', 'wh', 'all'].includes(v) ? v : 'now'; ls.set('sb-yc-view', S.view);
   S.rows = S.view === 'all' ? S.all : S.view === 'wh' ? S.wh : S.now; S.cat = ''; S.flt = '';
   document.querySelectorAll('#views button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === S.view));
-  $('sub').textContent = S.view === 'all' ? `전체 · 영상 ${S.vids}개에서 모은 ${S.all.length}개 상품` : S.view === 'wh' ? `창고 · 지금은 행사가 끝난 ${S.wh.length}개 상품` : `지금 행사 중 ${S.now.length}개 · 유리카트 ${md(S.latest)} 영상 기준`;
+  $('sub').textContent = S.view === 'all' ? `전체 · 영상 ${S.vids}개에서 모은 ${S.all.filter((d) => !d.catalog).length}개 상품` + (S.all.some((d) => d.catalog) ? ` + 커클랜드 ${S.all.filter((d) => d.catalog).length}개` : '') : S.view === 'wh' ? `창고 · 지금은 행사가 끝난 ${S.wh.length}개 상품` : `지금 행사 중 ${S.now.length}개 · 유리카트 ${md(S.latest)} 영상 기준`;
   buildCats(); buildPicks(); render(); if (!init) window.scrollTo({top: 0});
 }
 
+const isKS = (d) => /커클랜드|kirkland/i.test(d.name || '');
 function buildCats() {
   const order = [], cnt = new Map();
-  S.rows.slice().sort((a, b) => a.ts - b.ts).forEach((d) => { if (!cnt.has(d.category)) { cnt.set(d.category, 0); order.push(d.category); } cnt.set(d.category, cnt.get(d.category) + 1); });
+  S.rows.slice().sort((a, b) => a.ts - b.ts).forEach((d) => { if (d.catalog) return; if (!cnt.has(d.category)) { cnt.set(d.category, 0); order.push(d.category); } cnt.set(d.category, cnt.get(d.category) + 1); });
   const soon = S.rows.filter((d) => { if (!d.end) return false; const n = dDays(d.end); return n >= 0 && n <= 2; }).length;
   const hot = S.rows.filter((d) => d.rate >= 0.3).length;
   let h = `<button class="cat" data-cat="" aria-pressed="true">전체<small>${S.rows.length}</small></button>`;
+  const ours = S.rows.filter((d) => d.buy).length, ks = S.rows.filter(isKS).length;
+  if (ours) h += `<button class="cat flt" data-flt="ours" aria-pressed="false">우리가 산 상품<small>${ours}</small></button>`;
+  if (ks) h += `<button class="cat flt" data-flt="ks" aria-pressed="false">커클랜드<small>${ks}</small></button>`;
+  if (ours || ks) h += '<span class="sep"></span>';
   h += order.map((c) => `<button class="cat" data-cat="${esc(c)}" aria-pressed="false">${esc(c)}<small>${cnt.get(c)}</small></button>`).join('');
   h += `<span class="sep"></span><button class="cat flt" data-flt="hot" aria-pressed="false">30%↑<small>${hot}</small></button>`;
-  const ours = S.rows.filter((d) => d.buy).length;
-  if (ours) h += `<button class="cat flt" data-flt="ours" aria-pressed="false">우리가 산 상품<small>${ours}</small></button>`;
   if (S.view !== 'now') { if (S.view === 'all') h += `<button class="cat flt" data-flt="onnow" aria-pressed="false">이번 주 행사 중<small>${S.rows.filter((d) => d.onNow).length}</small></button>`; h += `<button class="cat flt" data-flt="again" aria-pressed="false">2회 이상 행사<small>${S.rows.filter((d) => d.times > 1).length}</small></button>`; }
   else h += `<button class="cat flt" data-flt="soon" aria-pressed="false">마감 임박<small>${soon}</small></button>`;
   $('cats').innerHTML = h;
@@ -418,7 +426,7 @@ function filtered() {
     (!S.cat || d.category === S.cat) &&
     (!S.favOnly || S.favs.has(d.key)) &&
     (S.flt !== 'hot' || d.rate >= 0.3) &&
-    (S.flt !== 'ours' || d.buy) &&
+    (S.flt !== 'ours' || d.buy) && (S.flt !== 'ks' || isKS(d)) &&
     (S.flt !== 'soon' || (d.end && dDays(d.end) >= 0 && dDays(d.end) <= 2)) &&
     (S.flt !== 'onnow' || d.onNow) && (S.flt !== 'again' || d.times > 1) &&
     (!q || (d.name || '').toLowerCase().includes(q) || String(d.item_no || '').includes(q) || (d.spec || '').toLowerCase().includes(q)));
@@ -443,7 +451,7 @@ function render() {
   S.list = filtered(); S.shown = 0;
   $('grid').innerHTML = '';
   $('empty').hidden = S.list.length > 0;
-  $('list-h').firstChild.textContent = S.favOnly ? '찜한 상품 ' : S.cat ? S.cat + ' ' : S.flt === 'hot' ? '30% 이상 할인 ' : S.flt === 'soon' ? '마감 임박 ' : S.flt === 'ours' ? '우리가 산 상품 ' : S.flt === 'onnow' ? '이번 주 행사 중 ' : S.flt === 'again' ? '2회 이상 행사 ' : S.view === 'all' ? '전체 상품 ' : S.view === 'wh' ? '창고 상품 ' : '이번 주 행사 ';
+  $('list-h').firstChild.textContent = S.favOnly ? '찜한 상품 ' : S.cat ? S.cat + ' ' : S.flt === 'hot' ? '30% 이상 할인 ' : S.flt === 'soon' ? '마감 임박 ' : S.flt === 'ours' ? '우리가 산 상품 ' : S.flt === 'ks' ? '커클랜드 ' : S.flt === 'onnow' ? '이번 주 행사 중 ' : S.flt === 'again' ? '2회 이상 행사 ' : S.view === 'all' ? '전체 상품 ' : S.view === 'wh' ? '창고 상품 ' : '이번 주 행사 ';
   $('list-n').textContent = S.list.length + '개';
   $('pick-sec').hidden = !!(S.cat || S.flt || S.q || S.favOnly);
   more();
@@ -511,11 +519,11 @@ function openSheet(key) {
         <dl class="prices num">
           ${d.regular ? `<div class="row"><dt>정상가</dt><dd>${won(d.regular)}원</dd></div>` : ''}
           ${d.discount ? `<div class="row"><dt>할인</dt><dd style="color:var(--sb)">-${won(d.discount)}원${d.rate != null ? ` (${(d.rate * 100).toFixed(1)}%)` : ''}</dd></div>` : ''}
-          <div class="row big"><dt>${d.new_item ? '판매가' : '행사가'}</dt><dd>${won(d.sale)}원</dd></div>
+          <div class="row big"><dt>${d.new_item || d.catalog ? '판매가' : '행사가'}</dt><dd>${won(d.sale)}원</dd></div>
           ${d.basis ? `<div class="row"><dt>기준</dt><dd>${esc(d.basis)}</dd></div>` : ''}
         </dl>
         ${d.end ? `<div class="period">${d.onNow ? '' : md(d.video_date) + ' 영상 · '}행사 기간 ${d.start ? md(d.start) : ''} ~ ${md(d.end)} · ${left < 0 ? '종료' : left === 0 ? '오늘 마감' : left + '일 남음'}
-          <div class="track"><i style="width:${(passed * 100).toFixed(0)}%"></i></div></div>` : `<div class="period">${md(d.video_date)} 영상${d.new_item ? ' · 신상(할인 없음)' : ''}</div>`}
+          <div class="track"><i style="width:${(passed * 100).toFixed(0)}%"></i></div></div>` : (d.catalog ? '<div class="period">코스트코 온라인몰 판매가 · 유리카트 행사 기록 없음</div>' : `<div class="period">${md(d.video_date)} 영상${d.new_item ? ' · 신상(할인 없음)' : ''}</div>`)}
         ${buyBlock(d)}
         ${d.times > 1 ? `<div class="hist">유리카트 행사 ${d.times}회 기록. 지금까지 최저 행사가는 <b>${won(d.best)}원</b>${!d.new_item && d.sale <= d.best ? ' — 이 가격이 가장 싸요!' : ''}</div>` : ''}
         <div class="acts">
