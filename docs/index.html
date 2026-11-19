@@ -619,7 +619,7 @@ function camCanvas(img, crop) {
 function findNo(texts) {
   const all = new Map(); S.all.forEach((d) => all.set(String(d.item_no), d));
   const seen = [];
-  for (const t of texts) for (const m of String(t).replace(/(\d)\s(?=\d)/g, '$1').match(/\d{5,7}/g) || []) { seen.push(m); if (all.has(m)) return {no: m, seen}; }
+  for (const t of texts) for (const ln of String(t).split(/\n/)) for (const m of [...(ln.match(/\d{5,7}/g) || []), ...(ln.replace(/(\d) (?=\d)/g, '$1').match(/\d{5,7}/g) || [])]) { if (!seen.includes(m)) seen.push(m); if (all.has(m)) return {no: m, seen}; }
   return {no: null, seen};
 }
 camIn.addEventListener('change', async () => {
