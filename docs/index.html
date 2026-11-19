@@ -626,7 +626,7 @@ camIn.addEventListener('change', async () => {
   const f = camIn.files && camIn.files[0]; if (!f) return;
   toast('가격표를 읽는 중이에요…', 0);
   try {
-    const img = new Image(); img.src = URL.createObjectURL(f); await img.decode();
+    const img = new Image(); await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = URL.createObjectURL(f); });
     const texts = [];
     if ('BarcodeDetector' in window) { try { const bs = await new BarcodeDetector().detect(img); bs.forEach((b) => texts.push(b.rawValue)); } catch (e) {} }
     let r = findNo(texts);
